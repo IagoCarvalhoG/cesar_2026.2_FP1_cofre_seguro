@@ -1,0 +1,10 @@
+datetime: 2026-11-17 10:43:50, operation: Revelar Senha, id: 1, servicename: youtube
+datetime: 2026-11-17 10:43:50, operation: Revelar Senha, id: 2, servicename: amazon
+datetime: 2026-11-17 10:43:50, operation: Revelar Senha, id: 3, servicename: shopee
+datetime: 2026-11-17 10:43:50, operation: Revelar Senha, id: 4, servicename: twitch
+datetime: 2026-11-17 10:43:50, operation: Revelar Senha, id: 5, servicename: ifood
+datetime: 2026-11-17 12:10:57, operation: Revelar Senha, id: 1, servicename: youtube
+datetime: 2026-11-17 12:10:57, operation: Revelar Senha, id: 2, servicename: amazon
+datetime: 2026-11-17 12:10:57, operation: Revelar Senha, id: 3, servicename: shopee
+datetime: 2026-11-17 12:10:57, operation: Revelar Senha, id: 4, servicename: twitch
+datetime: 2026-11-17 12:10:57, operation: Revelar Senha, id: 5, servicename: ifood

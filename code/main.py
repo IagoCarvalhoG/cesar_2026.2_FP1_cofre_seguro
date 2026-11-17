@@ -29,8 +29,14 @@ def displayDataFromSelect(code, dataToDisplay):
     elif code["code"] == 401:
         print("Credential nao encontrada para o tipo da busca e valor usado")
     else:
+        print("-" * 60)
         for data in dataToDisplay:
-            print(data)
+            print(f"\nID: {data.get('id')} | Serviço: {data.get('servicename').capitalize()}")
+            print(f"\n  - Usuário: {data.get('usuario')}")
+            print(f"\n  - Email: {data.get('email')}")
+            print(f"\n  - Senha: {data.get('senha')}")
+            print(f"\n  - Observações: {data.get('observacoes')}")
+            print("-" * 60)
 
 def getUserInputForUpdate():
     valService = input("Digite o nome do serviço atual: \n").strip()
@@ -97,6 +103,22 @@ def getUserInputForDeleteCategory():
     return {
         "categoryName": categoryName
     }
+    
+def repeatedPasswordValidation(dataDictionary):
+    payload = dataDictionary.validateRepeatedPasswords()
+    if payload["code"] == 200:
+        print("\n Alerta: Senhas repetidas encontradas!")
+        for item in payload["repeatedPasswords"]:
+            print(f"\nSenha mascarada: {item['senha']}")
+            print("\nUtilizada nos seguintes serviços:")
+            for vinculo in item["vinculos"]:
+                print(f"\n  - Serviço: {vinculo['servicename']} | Email/Usuário: {vinculo['email']}/{vinculo['usuario']}")
+    elif payload["code"] == 204:
+        print(f"\n{payload['message']}")
+    
+def warningsValidation(dataDictionary):
+    repeatedPasswordValidation(dataDictionary)
+
 
 
 #####################
@@ -116,24 +138,51 @@ while runningCode:
     print("6 - Listar categorias e seus parametros de força de senha\n")
     print("7 - Editar categoria e seu parametro de força de senha\n")
     print("8 - Apagar categoria e seu parametro de força de senha\n")
-    print("9 - Sair do programa\n")
+    print("9 - Exibir histórico de logs\n")
+    print("10 - Exibir resumo de segurança da conta\n")
+    print("0 - Sair do programa\n")
 
 
     try:
         opCode = int(input())
-        if opCode == 9:
+        if opCode == 0:
             runningCode = False
-        elif opCode > 8 or opCode < 1:
+        elif opCode > 10 or opCode < 0:
             print("\n Codigo nao configurado favor escolher um codigo valido")
         else:
             dataDictionary =  DataDictionary()
+            warningsValidation(dataDictionary)
             match opCode:
                 case 1:
                     payloadMessage =dataDictionary.createCredencials(getUserInputForCreate())
                     print(f"\n{payloadMessage['message']}")
                 case 2:
                     searchBy, searchValue = getUserInputForSelect()
-                    displayDataFromSelect(*dataDictionary.listCredentials(searchBy, searchValue))
+                    code_result, credentials_list = dataDictionary.listCredentials(searchBy, searchValue)
+                    displayDataFromSelect(code_result, credentials_list)
+                    
+                    if code_result.get("code") == 200 and credentials_list:
+                        print("\n--------------------------------------------------")
+                        try:
+                            escolha_menu = int(input("\n1 - Revelar TODAS as senhas listadas acima\n2 - Voltar ao inicio do programa\nEscolha uma opção: "))
+                            
+                            if escolha_menu == 1:
+                                idsToReveal = [str(cred.get("id")) for cred in credentials_list if "id" in cred]
+                                revealPayload = dataDictionary.revealPasswordById(idsToReveal)
+                                
+                                if revealPayload["code"] == 200:
+                                    print("\n Senhas Reveladas:")
+                                    for cred in revealPayload["credentials"]:
+                                        print(f"  - ID: {cred['id']} | Serviço: {cred['servicename']} | Senha: {cred['senha']}")
+                                    
+                                    if revealPayload.get("notFoundIds"):
+                                        print(f"\n IDs não encontrados: {', '.join(revealPayload['notFoundIds'])}")
+                                else:
+                                    print(f"\n {revealPayload['message']}\n")
+                                
+                        except ValueError:
+                            print("\n Entrada inválida! Digite apenas números. Retornando ao menu principal.")
+                    
                 case 3:
                     searchCriteria, newValues = getUserInputForUpdate()
                     updateResult = dataDictionary.updateCredentials(searchCriteria, newValues)                    
@@ -161,5 +210,34 @@ while runningCode:
                     deleteCategoryData = getUserInputForDeleteCategory()
                     messagePayload = dataDictionary.deleteCategory(deleteCategoryData)
                     print(f"\n{messagePayload['message']}")
+                case 9:
+                    payload_logs = dataDictionary.getLogs()
+                    if payload_logs["code"] == 200:
+                        print("\n--- HISTÓRICO DE LOGS ---")
+                        for log in payload_logs["logs"]:
+                            print(f"  - {log}")
+                        print("-" * 30)
+                    else:
+                        print(f"\n{payload_logs['message']}")
+                case 10: 
+                    summary = dataDictionary.getUserSecuritySummary()
+                    if summary["code"] == 200:
+                        print("\n--------------------------------------------------")
+                        print(" \nResumo de Segurança da Conta")
+                        print("\n--------------------------------------------------")
+                        print(f"\n Total de credenciais cadastradas: {summary['totalCredentials']}")
+                        print(f"\n Senhas classificadas como 'Fracas': {summary['weakPasswordsCount']}")
+                        print(f"\n Senhas na lista de comuns/proibidas: {summary['commonPasswordsCount']}")
+                        print(f"\n Senhas repetidas (reutilizadas): {summary['repeatedPasswordsCount']}")
+                        print("\n------------------------------------------------------")
+                        print("\nDetalhamento por serviço:")
+                        print("\n------------------------------------------------------")
+                        for item in summary["details"]:
+                            print(f"\n  - ID: {item['id']} | Serviço: {item['servicename'].capitalize()} ({item['usuario']})")
+                            print(f"\n  - Força: {item['strength']} | Comum: {'Sim' if item['isCommon'] else 'Não'} | Repetida: {'Sim' if item['isRepeated'] else 'Não'}")
+                            print(f"\n  - Tempo sem alteração: {item['timeUnchanged']}")
+                        print("\n------------------------------------------------------")
+                    else:
+                        print(f"\n{summary['message']}")
     except Exception as e:
         print(e)

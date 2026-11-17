@@ -1,3 +1,4 @@
+import datetime
 import re
 
 class DataDictionary:
@@ -25,15 +26,39 @@ class DataDictionary:
         arrResult = []
         for i in uneditedArchive:
             i = i.replace("\n", "")
+            if i.strip() == "":
+                continue
             arrIndividualVal = i.split(",")
             arrResult.append({val.split(":")[0].strip(): val.split(":")[1].strip() for val in arrIndividualVal})
         return arrResult
+    
     
     def getPasswordsDb(self):
         uneditedArchive = open(self.filePathDb, "r", encoding="utf8")
         archiveByLine = uneditedArchive.readlines()
         uneditedArchive.close()
         return self.defaultDictionaryFromTxt(archiveByLine)
+    
+    def revealPassword(self, searchCriteria):
+        allCredentials = self.getPasswordsDb()
+        if not allCredentials:
+            return {"code": 201, "message": "Não há credenciais cadastradas."}
+
+        for credential in allCredentials:
+            is_match = (
+                credential.get("servicename", "").strip().lower() == searchCriteria["servicename"].strip().lower() and
+                credential.get("usuario", "").strip() == searchCriteria["usuario"].strip()
+            )
+            
+            if is_match:
+                self.log_operation("Revelar Senha", credential.get("servicename"))
+                return {
+                    "code": 200, 
+                    "message": f"Senha revelada com sucesso!", 
+                    "senha": credential.get("senha")
+                }
+
+        return {"code": 404, "message": "Credencial não encontrada para revelar a senha."}
     
     def getStrengthValidationDb(self):
         uneditedArchive = open(self.filePathStrengthValidation, "r", encoding="utf8")
@@ -126,7 +151,6 @@ class DataDictionary:
                 if key in mensagens_pendencia:
                     falhas.append(mensagens_pendencia[key])
         
-        # Monta a mensagem descritiva com o que falta
         detalhes = ", ".join(falhas)
         mensagem_erro = f"Senha não é válida. Força atual: {passwordStrength['strength']} (Mínimo exigido: {strengthRequired.capitalize()}). Para melhorar, você precisa: {detalhes}."
         
@@ -146,6 +170,7 @@ class DataDictionary:
         f"{key}: {value}" for key, value in dicUserInput.items()
         ) + "\n"
         self.writeFunctions(self.filePathDb, credentialString, "a")
+        self.log_operation("Cadastrar Credencial", dicUserInput["servicename"], uniqueId)
         return {"code": 200, "message": "Credenciais criadas com sucesso!"}
     
     def listCredentials(self, searchBy, searchData):
@@ -187,6 +212,7 @@ class DataDictionary:
             return {"code": 201, "message": "Não há credenciais cadastradas."}
 
         found = False
+        deletedId = None
         updatedCredentials = []
 
         for credential in allCredentials:
@@ -198,6 +224,7 @@ class DataDictionary:
             
             if is_match:
                 found = True 
+                deletedId = credential.get("id")
             else:
                 updatedCredentials.append(credential)
 
@@ -212,6 +239,7 @@ class DataDictionary:
             allDataString += credentialString
         try:
             self.writeFunctions(self.filePathDb, allDataString, "w")
+            self.log_operation("Deletar Credencial", searchCriteria["servicename"], deletedId)
             return {"code": 200, "message": "Credencial deletada com sucesso!"}
         except Exception as e:
             return {"code": 500, "message": f"Erro ao atualizar o arquivo após deleção: {e}"}
@@ -223,14 +251,14 @@ class DataDictionary:
             return {"code": 201, "message": "Não há credenciais cadastradas."}
 
         found = False
-
+        credId = None
         for credential in allCredentials:
             if (credential.get("servicename", "").strip().lower() == searchCriteria["servicename"].strip().lower() and
                 credential.get("usuario", "").strip() == searchCriteria["usuario"].strip() and
                 credential.get("senha", "").strip() == searchCriteria["senha"].strip()):
                 
                 found = True
-                
+                credId = credential.get("id")
                 for key, value in newValues.items():
                     if value is not None:
                         if key == "senha":
@@ -251,6 +279,7 @@ class DataDictionary:
             allDataString += credentialString
         try:
             self.writeFunctions(self.filePathDb, allDataString, "w")
+            self.log_operation("Atualizar Credencial", searchCriteria["servicename"], credId)
             return {"code": 200, "message": "Credencial atualizada com sucesso!"}
         except Exception as e:
             return {"code": 500, "message": f"Erro ao salvar alterações no arquivo: {e}"}
@@ -360,3 +389,181 @@ class DataDictionary:
             return {"code": 200, "message": "Categoria deletada com sucesso!"}
         except Exception as e:
             return {"code": 500, "message": f"Erro ao salvar alterações no arquivo: {e}"}
+        
+    def validateRepeatedPasswords(self):
+        allCredentials = self.getPasswordsDb()
+        if not allCredentials:
+            return {"code": 204, "message": "Não há credenciais cadastradas."}
+
+        passwordMap = {}
+
+        for credential in allCredentials:
+            password = credential.get("senha")
+            if password:
+                if password not in passwordMap:
+                    passwordMap[password] = []
+                passwordMap[password].append(credential)
+
+        repeatedDetails = []
+
+        for password, creds in passwordMap.items():
+            if len(creds) > 1:
+                hidden_password = self.hideValueForDisplay(password)
+                
+                # Lista formatada com os serviços e emails afetados
+                affected_services = [
+                    {
+                        "servicename": c.get("servicename"),
+                        "email": c.get("email"),
+                        "usuario": c.get("usuario")
+                    } for c in creds
+                ]
+                
+                repeatedDetails.append({
+                    "senha": hidden_password,
+                    "vinculos": affected_services
+                })
+
+        if repeatedDetails:
+            return {"code": 200, "repeatedPasswords": repeatedDetails}
+        else:
+            return {"code": 204, "message": "Não há senhas repetidas."}
+        
+    def log_operation(self, operation, servicename="N/A", credential_id="N/A"):
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"datetime: {current_time}, operation: {operation}, id: {credential_id}, servicename: {servicename}\n"
+        
+        try:
+            self.writeFunctions(self.filePathLogs, log_entry, "a")
+        except Exception as e:
+            print(f"Erro ao escrever no log: {e}")
+            
+    def revealPasswordById(self, credentialIds):
+        allCredentials = self.getPasswordsDb()
+        if not allCredentials:
+            return {"code": 201, "message": "Não há credenciais cadastradas."}
+
+        found_credentials = []
+        notFoundIds = []
+
+        credentials_map = {str(cred.get("id")): cred for cred in allCredentials if cred.get("id") is not None}
+
+        for target_id in credentialIds:
+            if target_id in credentials_map:
+                credential = credentials_map[target_id]
+                service_name = credential.get("servicename", "N/A")
+                cred_id = credential.get("id", "N/A")
+                
+                self.log_operation("Revelar Senha", service_name, cred_id)
+                
+                found_credentials.append({
+                    "id": cred_id,
+                    "servicename": service_name,
+                    "senha": credential.get("senha")
+                })
+            else:
+                notFoundIds.append(target_id)
+
+        if found_credentials:
+            return {
+                "code": 200,
+                "message": "Senhas reveladas com sucesso!",
+                "credentials": found_credentials,
+                "notFoundIds": notFoundIds
+            }
+
+        return {"code": 404, "message": "Nenhum dos IDs informados foi encontrado."}
+    
+    def getLogs(self):
+        try:
+            with open(self.filePathLogs, "r", encoding="utf8") as file:
+                logs_lines = file.readlines()
+                
+            if not logs_lines:
+                return {"code": 201, "message": "O arquivo de log está vazio."}
+                
+            cleaned_logs = [line.strip() for line in logs_lines if line.strip()]
+            return {"code": 200, "logs": cleaned_logs}
+            
+        except FileNotFoundError:
+            return {"code": 404, "message": "Arquivo de log ainda não foi criado (nenhuma operação registrada)."}
+        except Exception as e:
+            return {"code": 500, "message": f"Erro ao ler o arquivo de log: {e}"}
+    
+    def getUserSecuritySummary(self):
+        allCredentials = self.getPasswordsDb()
+        if not allCredentials:
+            return {"code": 201, "message": "Não há credenciais cadastradas para gerar o resumo."}
+
+        totalCredentials = len(allCredentials)
+        weakPasswordsCount = 0
+        commonPasswordsCount = 0
+
+        notUsableDb = self.getPasswordNotUsableDb()
+        notUsableSet = {entry.get("senha") for entry in notUsableDb}
+
+        passwordCounts = {}
+        for cred in allCredentials:
+            pwd = cred.get("senha")
+            if pwd:
+                passwordCounts[pwd] = passwordCounts.get(pwd, 0) + 1
+
+        credentialsSummary = []
+        now = datetime.datetime.now()
+
+        for cred in allCredentials:
+            pwd = cred.get("senha", "")
+            service = cred.get("servicename", "Desconhecido")
+            user = cred.get("usuario", "Desconhecido")
+            credId = cred.get("id", "N/A")
+            
+            strengthData = self.evaluatePasswordStrength(pwd)
+            isWeak = strengthData["strength"].lower() == "fraca"
+            if isWeak:
+                weakPasswordsCount += 1
+
+            isCommon = pwd in notUsableSet
+            if isCommon:
+                commonPasswordsCount += 1
+
+            isRepeated = passwordCounts.get(pwd, 0) > 1
+
+            dateStr = cred.get("datetime")
+            timeUnchanged = "Data não registrada"
+            if dateStr:
+                try:
+                    if isinstance(dateStr, str):
+                        formatedDateCred = datetime.datetime.fromisoformat(dateStr.strip())
+                    else:
+                        formatedDateCred = dateStr
+
+                    delta = now - formatedDateCred
+                    days = delta.days
+                    if days == 0:
+                        timeUnchanged = "Alterada hoje"
+                    else:
+                        timeUnchanged = f"Há {days} dias"
+                except Exception:
+                    timeUnchanged = str(dateStr)
+
+            credentialsSummary.append({
+                "id": credId,
+                "servicename": service,
+                "usuario": user,
+                "strength": strengthData["strength"],
+                "isWeak": isWeak,
+                "isCommon": isCommon,
+                "isRepeated": isRepeated,
+                "timeUnchanged": timeUnchanged
+            })
+
+        repeatedTotalCount = sum(1 for pwd, count in passwordCounts.items() if count > 1)
+
+        return {
+            "code": 200,
+            "totalCredentials": totalCredentials,
+            "weakPasswordsCount": weakPasswordsCount,
+            "commonPasswordsCount": commonPasswordsCount,
+            "repeatedPasswordsCount": repeatedTotalCount,
+            "details": credentialsSummary
+        }
