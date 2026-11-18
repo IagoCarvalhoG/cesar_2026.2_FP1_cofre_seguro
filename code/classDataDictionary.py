@@ -1,5 +1,7 @@
 import datetime
 import re
+import hashlib
+import requests
 
 class DataDictionary:
     
@@ -567,3 +569,53 @@ class DataDictionary:
             "repeatedPasswordsCount": repeatedTotalCount,
             "details": credentialsSummary
         }
+    
+    def checkLeakedPasswords(self):
+        allCredentials = self.getPasswordsDb()
+        if not allCredentials:
+            return {"code": 201, "message": "Não há credenciais cadastradas para verificar."}
+
+        leakedResults = []
+        checkedPasswords = set() 
+
+        for cred in allCredentials:
+            password = cred.get("senha")
+            service = cred.get("servicename", "Desconhecido")
+            user = cred.get("usuario", "Desconhecido")
+            cred_id = cred.get("id", "N/A")
+
+            if not password or password in checkedPasswords:
+                continue
+            
+            checkedPasswords.add(password)
+
+            sha1Password = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+            
+            prefix = sha1Password[:5]
+            suffix = sha1Password[5:]
+
+            url = f"https://api.pwnedpasswords.com/range/{prefix}"
+
+            try:
+                response = requests.get(url, timeout=5)
+                if response.status_code == 200:
+                    hashes = (line.split(':') for line in response.text.splitlines())
+                    
+                    for h, count in hashes:
+                        if h == suffix:
+                            leakedResults.append({
+                                "id": cred_id,
+                                "servicename": service,
+                                "usuario": user,
+                                "pwnedCount": int(count)
+                            })
+                            break
+            except requests.exceptions.RequestException:
+                return {"code": 503, "message": "Erro de conexão com a internet para verificar vazamentos."}
+            except Exception as e:
+                return {"code": 500, "message": f"Erro inesperado ao consultar HIBP: {e}"}
+
+        if leakedResults:
+            return {"code": 200, "leaked": leakedResults}
+        else:
+            return {"code": 204, "message": "Parabéns! Nenhuma das suas senhas foi encontrada em vazamentos públicos."}

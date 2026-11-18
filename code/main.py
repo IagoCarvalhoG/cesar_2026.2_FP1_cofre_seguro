@@ -1,4 +1,5 @@
 from classDataDictionary import DataDictionary
+from agente import falar_com_agente_texto
 import datetime
 
 
@@ -119,8 +120,70 @@ def repeatedPasswordValidation(dataDictionary):
 def warningsValidation(dataDictionary):
     repeatedPasswordValidation(dataDictionary)
 
+def runAgentChatWithSecurity(dataDictionary):
+    
+    print("\n--------------------------------------------------")
+    print("              Chamada ao agente de IA externo"       )
+    print("--------------------------------------------------")
 
+    try:
+        allCredentials = dataDictionary.getPasswordsDb()
+    except Exception as e:
+        print(f"\n Erro ao ler o banco de dados de credenciais: {e}")
+        return
 
+    if not allCredentials:
+        print(f"\n Não há credenciais cadastradas no sistema para o agente consultar.")
+        return
+
+    texto_dados = "id,servicename,usuario,email,observacoes,datetime\n"
+    for cred in allCredentials:
+        cId = cred.get("id", "")
+        service = cred.get("servicename", "")
+        user = cred.get("usuario", "")
+        email = cred.get("email", "")
+        obs = cred.get("observacoes", "")
+        dt = cred.get("datetime", "")
+        
+        texto_dados += f"{cId},{service},{user},{email},{obs},{dt}\n"
+
+    print("\n AVISO DE SEGURANÇA: Esta funcionalidade envia os metadados das suas credenciais")
+    print("   (sem as senhas reais) para o modelo de Inteligência Artificial externo.")
+    confirmation = input("Deseja prosseguir e conversar com o agente? (s/n): ").strip().lower()
+    
+    if confirmation != 's':
+        print("\n Operação cancelada pelo usuário.")
+        return
+
+    print(f"\n Base de dados carregada com sucesso ({len(allCredentials)} registros).")
+    print(" Digite 'sair' a qualquer momento para retornar ao menu principal.\n")
+
+    while True:
+        pergunta = input("Pergunta ao Agente > ").strip()
+        if pergunta.lower() == "sair":
+            print("\nEncerrando chat com o agente. Retornando ao menu principal...")
+            break
+        
+        if not pergunta:
+            continue
+
+        print("\n--------------------------------------------------")
+        
+        try:
+            dataDictionary.log_operation(
+                operation="Consulta Agente de IA", 
+                servicename="IA Assistant", 
+                credential_id=f"Pergunta: {pergunta}"
+            )
+
+            falar_com_agente_texto(texto_dados, pergunta, "CofreSeguro")
+
+        except Exception as e:
+            print(f" Erro de conexão ou configuração com o Agente de IA: {e}")
+            print("Verifique se a chave de API está definida no arquivo .env e se há conexão com a internet.")
+        
+        print("\n--------------------------------------------------")
+        
 #####################
 #
 #
@@ -128,6 +191,8 @@ def warningsValidation(dataDictionary):
 #
 #
 ####################
+
+
 runningCode = True
 while runningCode:
     print("1 - Cadastrar senha\n")
@@ -140,6 +205,8 @@ while runningCode:
     print("8 - Apagar categoria e seu parametro de força de senha\n")
     print("9 - Exibir histórico de logs\n")
     print("10 - Exibir resumo de segurança da conta\n")
+    print("11 - Pergunte ao agente de IA\n")
+    print("12 - Verificar senhas vazadas (Have I Been Pwned)\n")
     print("0 - Sair do programa\n")
 
 
@@ -147,7 +214,7 @@ while runningCode:
         opCode = int(input())
         if opCode == 0:
             runningCode = False
-        elif opCode > 10 or opCode < 0:
+        elif opCode > 12 or opCode < 0:
             print("\n Codigo nao configurado favor escolher um codigo valido")
         else:
             dataDictionary =  DataDictionary()
@@ -239,5 +306,23 @@ while runningCode:
                         print("\n------------------------------------------------------")
                     else:
                         print(f"\n{summary['message']}")
+                case 11:
+                    runAgentChatWithSecurity(dataDictionary)
+                case 12:
+                    print("\nConsultando base de senhas vazadas (Have I Been Pwned)...")
+                    payload = dataDictionary.checkLeakedPasswords()
+                    
+                    if payload["code"] == 200:
+                        print("\n ALERTA DE SEGURANÇA: Senhas comprometidas encontradas!")
+                        print("\n------------------------------------------------------")
+                        for item in payload["leaked"]:
+                            print(f"\n  - Serviço: {item['servicename'].capitalize()} ({item['usuario']})")
+                            print(f"\n  - Apareceu em vazamentos públicos {item['pwnedCount']} vezes!")
+                        print("\n------------------------------------------------------")
+                        print("\nRecomendação: Altere essas senhas imediatamente!")
+                    elif payload["code"] in [201, 204, 503]:
+                        print(f"\n {payload['message']}")
+                    else:
+                        print(f"\n {payload['message']}")
     except Exception as e:
         print(e)
